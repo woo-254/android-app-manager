@@ -40,7 +40,7 @@ pip install rich  # For beautiful UI
 
 echo -e "${BLUE}[4/5] Downloading Android App Manager...${NC}"
 # Download the main script
-curl -L -o $PREFIX/bin/appmanager https://raw.githubusercontent.com/YOUR-USERNAME/android-app-manager/main/appmanager.py
+curl -L -o $PREFIX/bin/appmanager https://raw.githubusercontent.com/woo-254/android-app-manager/main/appmanager.py
 chmod +x $PREFIX/bin/appmanager
 
 # Create alias
@@ -81,4 +81,5 @@ echo ""
 echo -e "${GREEN}🎉 Enjoy managing your Android apps!${NC}"
 echo ""
 echo -e "${YELLOW}⭐ Star the repo if you like it!${NC}"
+
 echo "https://github.com/woo-254/android-app-manager"
