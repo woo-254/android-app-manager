@@ -36,7 +36,7 @@ pkg install -y python git
 
 echo -e "${BLUE}[3/5] Installing Python packages...${NC}"
 pip install --upgrade pip
-pip install rich  # For beautiful UI
+pip install rich
 
 echo -e "${BLUE}[4/5] Downloading Android App Manager...${NC}"
 # Download the main script
@@ -81,5 +81,4 @@ echo ""
 echo -e "${GREEN}🎉 Enjoy managing your Android apps!${NC}"
 echo ""
 echo -e "${YELLOW}⭐ Star the repo if you like it!${NC}"
-
 echo "https://github.com/woo-254/android-app-manager"
