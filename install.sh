@@ -1,84 +1,72 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Complete Android App Manager Installer for Termux
+# Android App Manager Installer
+# GitHub: https://github.com/woo-254/android-app-manager
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-echo -e "${BLUE}"
-echo "   ▗▄▄▄       ▗▄▄▄▖    ▗▄▄▄▖ ▗▄▄▄▖▗▄▄▄▖"
-echo "  ▐█▄▄▟▖     ▐█▄▄▟▖   ▐█▄▄▟▖▐█▄▄▟▖▐█▄▄▟▖"
-echo "  ▐█  ▐█     ▐█  ▐█   ▐█   ▝▐█  ▐█▐█  ▐█"
-echo "  ▐█▄▄▟▖     ▐█▄▄▟▖   ▐█▗▄▄▖▐█▄▄▟▖▐█▄▄▟▖"
-echo "  ▐█▀▀▜▖     ▐█▀▀▜▖   ▐█▝▀▚▖▐█▀▀▜▖▐█▀▀▜▖"
-echo "  ▐█  ▐█     ▐█  ▐█   ▐█   ▝▐█  ▐█▐█  ▐█"
-echo "   ▝▀▀▀       ▝▀▀▀    ▝▀▀▀▘ ▝▀▀▀ ▝▀▀▀ "
-echo -e "${NC}"
-echo -e "${CYAN}Android App Manager - Complete Edition${NC}"
-echo -e "${YELLOW}Full-featured app management for Termux${NC}"
+echo ""
+echo "┌─────────────────────────────────────────┐"
+echo "│    📱 Android App Manager Installer     │"
+echo "└─────────────────────────────────────────┘"
 echo ""
 
-# Check Termux
+# Check if running in Termux
 if [ ! -d "/data/data/com.termux/files/usr" ]; then
-    echo -e "${RED}❌ This script must be run in Termux${NC}"
-    echo "Install Termux from F-Droid, then run this script"
+    echo "❌ Error: This script must be run in Termux"
+    echo "   Install Termux from F-Droid first"
     exit 1
 fi
 
-echo -e "${BLUE}[1/5] Updating Termux...${NC}"
+echo "📦 Step 1: Updating Termux packages..."
 pkg update -y && pkg upgrade -y
 
-echo -e "${BLUE}[2/5] Installing dependencies...${NC}"
-pkg install -y python git
+echo "🐍 Step 2: Installing Python..."
+pkg install -y python
 
-echo -e "${BLUE}[3/5] Installing Python packages...${NC}"
-pip install --upgrade pip
-pip install rich
-
-echo -e "${BLUE}[4/5] Downloading Android App Manager...${NC}"
+echo "⬇️  Step 3: Downloading Android App Manager..."
 # Download the main script
-curl -L -o $PREFIX/bin/appmanager https://raw.githubusercontent.com/woo-254/android-app-manager/main/appmanager.py
+curl -sL "https://raw.githubusercontent.com/woo-254/android-app-manager/main/appmanager.py" -o $PREFIX/bin/appmanager
+
+# Make it executable
 chmod +x $PREFIX/bin/appmanager
 
+echo "🔗 Step 4: Creating shortcuts..."
 # Create alias
 echo "alias aam='appmanager'" >> $HOME/.bashrc
 
-echo -e "${BLUE}[5/5] Setting up Termux...${NC}"
-# Create config directory
-mkdir -p $HOME/.config/appmanager
+# Also create aam command
+ln -sf $PREFIX/bin/appmanager $PREFIX/bin/aam 2>/dev/null || true
 
 echo ""
-echo -e "${GREEN}✅ INSTALLATION COMPLETE!${NC}"
+echo "✅ INSTALLATION COMPLETE!"
 echo ""
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}🌟 Quick Start:${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📖 HOW TO USE:"
 echo ""
-echo -e "${YELLOW}1. First, grant storage permission:${NC}"
-echo -e "   ${GREEN}termux-setup-storage${NC}"
+echo "1️⃣  First, grant storage permission:"
+echo "    termux-setup-storage"
 echo ""
-echo -e "${YELLOW}2. Launch interactive mode:${NC}"
-echo -e "   ${GREEN}appmanager${NC}"
-echo -e "   ${GREEN}aam${NC} (short alias)"
+echo "2️⃣  Launch interactive mode:"
+echo "    appmanager"
+echo "    aam   (short alias)"
 echo ""
-echo -e "${YELLOW}3. Or use command line:${NC}"
-echo -e "   ${GREEN}appmanager list${NC}"
-echo -e "   ${GREEN}appmanager disable com.bloatware${NC}"
-echo -e "   ${GREEN}appmanager uninstall com.unwanted${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo "3️⃣  Or use command line:"
+echo "    appmanager list"
+echo "    appmanager disable com.example.app"
+echo "    appmanager enable com.example.app"
 echo ""
-echo -e "${RED}⚠️  CRITICAL WARNING:${NC}"
-echo "Never disable:"
-echo "  ${RED}com.android.systemui${NC} - Will black screen!"
-echo "  ${RED}com.android.phone${NC} - Calls won't work"
-echo "  ${RED}com.android.settings${NC} - Can't open settings"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "⚠️  IMPORTANT WARNINGS:"
 echo ""
-echo -e "${BLUE}📚 Documentation:${NC}"
-echo "Run: ${CYAN}appmanager --help${NC}"
+echo "• NEVER disable: com.android.systemui"
+echo "• NEVER disable: com.android.phone"
+echo "• NEVER disable: com.android.settings"
 echo ""
-echo -e "${GREEN}🎉 Enjoy managing your Android apps!${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔧 Need help? Run: appmanager --help"
 echo ""
-echo -e "${YELLOW}⭐ Star the repo if you like it!${NC}"
-echo "https://github.com/woo-254/android-app-manager"
+echo "⭐ GitHub: https://github.com/woo-254/android-app-manager"
+echo ""
+
+# Reload shell
+source $HOME/.bashrc 2>/dev/null || true
+
+echo "🎉 Done! You can now run 'appmanager'"
