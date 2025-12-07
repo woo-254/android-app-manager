@@ -1,501 +1,333 @@
-
+#!/data/data/com.termux/files/usr/bin/env python3
+"""
+Android App Manager - Complete Working Version
+GitHub: https://github.com/woo-254/android-app-manager
+"""
 import os
-import re
 import sys
 import subprocess
-import json
-from datetime import datetime
+import time
 
-# Try to import Rich for beautiful UI, fallback to simple if not available
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn
-    from rich import print as rprint
-    RICH_AVAILABLE = True
-except ImportError:
-    RICH_AVAILABLE = False
-    # Simple print function
-    def rprint(*args, **kwargs):
-        print(*args)
+# Simple print function
+def prt(text):
+    print(text)
 
-console = Console() if RICH_AVAILABLE else None
+def run_cmd(cmd):
+    """Run a shell command"""
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        return result.stdout, result.stderr, result.returncode
+    except Exception as e:
+        return "", str(e), 1
 
-class AndroidAppManager:
-    def _init_(self):
-        self.rooted = self.check_root()
-        self.apps = []
-        self.system_apps = []
-        self.user_apps = []
-        self.critical_apps = [
-            "com.android.systemui",
-            "com.android.phone",
-            "com.android.settings",
-            "com.google.android.gms",
-            "android",
-            "com.android.providers.telephony"
-        ]
-    
-    def check_root(self):
-        """Check if device is rooted"""
-        checks = ["su -c 'echo ROOT_TEST'", "which su", "id | grep uid=0"]
-        for cmd in checks:
-            try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
-                if result.returncode == 0 and ('ROOT_TEST' in result.stdout or 'uid=0' in result.stdout):
-                    return True
-            except:
-                continue
-        return False
-    
-    def run_cmd(self, cmd, root=False, timeout=10):
-        """Run command with optional root"""
-        try:
-            if root and self.rooted:
-                cmd = f"su -c '{cmd}'"
-            
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
-            return result.stdout, result.stderr, result.returncode
-        except subprocess.TimeoutExpired:
-            return "", "Timeout", 1
-        except Exception as e:
-            return "", str(e), 1
-    
-    def get_all_packages(self):
-        """Get ALL packages using multiple methods"""
-        packages = []
-        
-        # Method 1: pm command
-        stdout, stderr, code = self.run_cmd("pm list packages")
-        if code == 0:
-            for line in stdout.split('\n'):
-                if line.startswith('package:'):
-                    pkg = line.replace('package:', '').strip()
-                    if pkg and pkg not in packages:
-                        packages.append(pkg)
-        
-        # Method 2: Directory scan
-        app_dirs = ['/data/app', '/system/app', '/system/priv-app', '/vendor/app']
-        for app_dir in app_dirs:
-            if os.path.exists(app_dir):
-                try:
-                    for item in os.listdir(app_dir):
-                        if '-' in item:
-                            pkg = item.split('-')[0]
-                            if '.' in pkg and pkg not in packages:
-                                packages.append(pkg)
-                except:
-                    pass
-        
-        return sorted(packages)
-    
-    def categorize_apps(self, packages):
-        """Categorize as system or user apps"""
-        system = []
-        user = []
-        
-        for pkg in packages:
-            stdout, stderr, code = self.run_cmd(f"pm path {pkg}")
-            if code == 0 and stdout:
-                if any(path in stdout for path in ['/system/', '/vendor/', '/product/']):
-                    system.append(pkg)
-                else:
-                    user.append(pkg)
-            else:
-                user.append(pkg)  # Default to user
-        
-        return system, user
-    
-    def get_app_info(self, package):
-        """Get detailed app info"""
-        info = {
-            'package': package,
-            'name': package,
-            'version': 'Unknown',
-            'path': 'Unknown',
-            'uid': 'Unknown',
-            'enabled': True
-        }
-        
-        stdout, stderr, code = self.run_cmd(f"pm dump {package}", timeout=15)
-        if code == 0:
-            lines = stdout.split('\n')
-            for line in lines:
-                if 'versionName=' in line:
-                    info['version'] = line.split('=')[-1].strip()
-                elif 'codePath=' in line:
-                    info['path'] = line.split('=')[-1].strip()
-                elif 'uid=' in line and 'userId' not in line:
-                    info['uid'] = line.split('=')[-1].strip()
-                elif 'enabled=' in line:
-                    info['enabled'] = 'true' in line.lower()
-        
-        # Check if disabled
-        stdout, stderr, code = self.run_cmd(f"pm list packages -d {package}")
-        if code == 0 and package in stdout:
-            info['enabled'] = False
-        
-        info['is_system'] = package in self.system_apps
-        
-        return info
-    
-    def display_apps_table(self, page=1, search=None):
-        """Display apps in a nice table"""
-        apps_list = []
-        for app in self.user_apps:
-            apps_list.append(('user', app))
-        for app in self.system_apps:
-            apps_list.append(('system', app))
-        
-        # Apply search filter
-        if search:
-            search = search.lower()
-            apps_list = [(t, p) for t, p in apps_list if search in p.lower()]
-        
-        # Pagination
-        page_size = 15
-        total_pages = (len(apps_list) + page_size - 1) // page_size
-        page = max(1, min(page, total_pages))
-        start = (page - 1) * page_size
-        end = min(start + page_size, len(apps_list))
-        
-        if RICH_AVAILABLE:
-            table = Table(title=f"📱 Installed Apps ({len(apps_list)} total) - Page {page}/{total_pages}")
-            table.add_column("#", style="cyan")
-            table.add_column("Type", style="magenta")
-            table.add_column("Package", style="yellow")
-            table.add_column("Status", style="green")
-            
-            for i in range(start, end):
-                app_type, package = apps_list[i]
-                info = self.get_app_info(package)
-                status = "✅ Enabled" if info['enabled'] else "⛔ Disabled"
-                type_str = "🔴 System" if app_type == 'system' else "🟢 User"
-                table.add_row(str(i+1), type_str, package, status)
-            
-            console.print(table)
-        else:
-            print(f"\n📱 Installed Apps ({len(apps_list)} total) - Page {page}/{total_pages}")
-            print("="*60)
-            for i in range(start, end):
-                app_type, package = apps_list[i]
-                info = self.get_app_info(package)
-                status = "Enabled" if info['enabled'] else "Disabled"
-                type_str = "[System]" if app_type == 'system' else "[User]"
-                print(f"{i+1:3}. {type_str:8} {package:30} [{status}]")
-        
-        return apps_list, page, total_pages
-    
-    def disable_app(self, package):
-        """Disable an app"""
-        if package in self.critical_apps:
-            print(f"⚠️  CRITICAL APP: {package}")
-            if not input("Are you SURE? (yes/no): ").lower().startswith('y'):
-                print("❌ Cancelled")
-                return False
-        
-        if self.rooted:
-            stdout, stderr, code = self.run_cmd(f"pm disable {package}", root=True)
-        else:
-            stdout, stderr, code = self.run_cmd(f"pm disable-user --user 0 {package}")
-        
-        if code == 0:
-            print(f"✅ Disabled {package}")
-            return True
-        else:
-            print(f"❌ Failed to disable {package}")
-            print(f"Error: {stderr}")
-            return False
-    
-    def enable_app(self, package):
-        """Enable a disabled app"""
-        stdout, stderr, code = self.run_cmd(f"pm enable {package}")
-        
-        if code == 0:
-            print(f"✅ Enabled {package}")
-            return True
-        else:
-            print(f"❌ Failed to enable {package}")
-            return False
-    
-    def uninstall_app(self, package):
-        """Uninstall an app"""
-        is_system = package in self.system_apps
-        
-        if is_system and not self.rooted:
-            print("❌ Cannot uninstall system apps without root")
-            return False
-        
-        if package in self.critical_apps:
-            print(f"⚠️  CRITICAL SYSTEM APP: {package}")
-            print("DO NOT UNINSTALL! Use 'disable' instead")
-            return False
-        
-        if is_system:
-            stdout, stderr, code = self.run_cmd(f"pm uninstall -k {package}", root=True)
-        else:
-            stdout, stderr, code = self.run_cmd(f"pm uninstall --user 0 {package}")
-        
-        if code == 0:
-            print(f"✅ Uninstalled {package}")
-            return True
-        else:
-            print(f"❌ Failed to uninstall {package}")
-            print(f"Error: {stderr}")
-            return False
-    
-    def clear_app_data(self, package):
-        """Clear app data"""
-        stdout, stderr, code = self.run_cmd(f"pm clear {package}")
-        
-        if code == 0 and 'Success' in stdout:
-            print(f"✅ Cleared data for {package}")
-            return True
-        else:
-            print(f"❌ Failed to clear data for {package}")
-            return False
-    
-    def backup_app(self, package, output_dir="."):
-        """Backup APK file"""
-        stdout, stderr, code = self.run_cmd(f"pm path {package}")
-        if code == 0:
-            for line in stdout.split('\n'):
-                if line.startswith('package:'):
-                    apk_path = line.replace('package:', '').strip()
-                    filename = f"{package}.apk"
-                    output_path = os.path.join(output_dir, filename)
-                    
-                    if self.rooted:
-                        self.run_cmd(f"cp {apk_path} {output_path}", root=True)
-                    else:
-                        # Try to copy without root
-                        try:
-                            import shutil
-                            shutil.copy(apk_path, output_path)
-                        except:
-                            print(f"❌ Need root to backup {package}")
-                            return False
-                    
-                    print(f"✅ Backed up to {output_path}")
-                    return True
-        
-        print(f"❌ Could not find APK for {package}")
-        return False
+def is_rooted():
+    """Check if device is rooted"""
+    stdout, stderr, code = run_cmd("su -c 'echo ROOT_TEST'")
+    return code == 0 and "ROOT_TEST" in stdout
 
-def main_menu():
-    """Interactive main menu"""
-    manager = AndroidAppManager()
+def get_all_packages():
+    """Get all installed packages"""
+    packages = []
     
-    if RICH_AVAILABLE:
-        console.print(Panel.fit(
-            "[bold green]Android App Manager[/bold green]\n"
-            "[cyan]Complete app management for Termux[/cyan]",
-            border_style="green"
-        ))
+    # Try pm command
+    stdout, stderr, code = run_cmd("pm list packages")
+    if code == 0 and stdout:
+        for line in stdout.strip().split('\n'):
+            if line.startswith('package:'):
+                packages.append(line[8:].strip())
+    
+    return sorted(packages)
+
+def get_app_status(package):
+    """Check if app is enabled or disabled"""
+    stdout, stderr, code = run_cmd(f"pm list packages -d {package}")
+    if code == 0 and package in stdout:
+        return "disabled"
+    return "enabled"
+
+def disable_app(package, rooted):
+    """Disable an app"""
+    if rooted:
+        stdout, stderr, code = run_cmd(f"su -c 'pm disable {package}'")
     else:
-        print("\n" + "="*50)
-        print("       ANDROID APP MANAGER")
-        print("="*50)
+        stdout, stderr, code = run_cmd(f"pm disable-user --user 0 {package}")
     
-    print(f"📦 Loading packages...")
-    manager.apps = manager.get_all_packages()
+    return code == 0
+
+def enable_app(package):
+    """Enable an app"""
+    stdout, stderr, code = run_cmd(f"pm enable {package}")
+    return code == 0
+
+def uninstall_app(package, rooted, is_system=False):
+    """Uninstall an app"""
+    if is_system and not rooted:
+        return False  # Can't uninstall system apps without root
     
-    if not manager.apps:
-        print("❌ No packages found!")
-        print("👉 Run: termux-setup-storage")
+    if rooted:
+        stdout, stderr, code = run_cmd(f"su -c 'pm uninstall {package}'")
+    else:
+        stdout, stderr, code = run_cmd(f"pm uninstall --user 0 {package}")
+    
+    return code == 0
+
+def clear_app_data(package):
+    """Clear app data"""
+    stdout, stderr, code = run_cmd(f"pm clear {package}")
+    return code == 0 and "Success" in stdout
+
+def is_system_app(package):
+    """Check if app is a system app"""
+    stdout, stderr, code = run_cmd(f"pm path {package}")
+    if code == 0 and stdout:
+        if "/system/" in stdout or "/vendor/" in stdout or "/product/" in stdout:
+            return True
+    return False
+
+def show_header():
+    """Show application header"""
+    prt("\n" + "="*60)
+    prt("          📱 ANDROID APP MANAGER")
+    prt("="*60)
+
+def show_main_menu():
+    """Show main menu"""
+    prt("\n" + "="*60)
+    prt("[1] List all apps")
+    prt("[2] List system apps")
+    prt("[3] List user apps")
+    prt("[4] Search packages")
+    prt("[5] Manage specific package")
+    prt("[6] Refresh list")
+    prt("[0] Exit")
+    prt("="*60)
+
+def list_apps(packages, app_type="all"):
+    """List apps with type filter"""
+    count = 0
+    for i, package in enumerate(packages, 1):
+        is_system = is_system_app(package)
+        
+        if app_type == "system" and not is_system:
+            continue
+        if app_type == "user" and is_system:
+            continue
+        
+        status = get_app_status(package)
+        status_icon = "✅" if status == "enabled" else "⛔"
+        type_icon = "🔴" if is_system else "🟢"
+        
+        prt(f"{i:4}. {type_icon} {status_icon} {package}")
+        count += 1
+        
+        if count % 15 == 0:
+            input("\nPress Enter for more... ")
+    
+    return count
+
+def manage_package(package, rooted):
+    """Manage a specific package"""
+    is_system = is_system_app(package)
+    status = get_app_status(package)
+    
+    prt(f"\n📦 Package: {package}")
+    prt(f"   Type: {'🔴 System App' if is_system else '🟢 User App'}")
+    prt(f"   Status: {'✅ Enabled' if status == 'enabled' else '⛔ Disabled'}")
+    prt(f"   Root: {'⚡ Available' if rooted else '⚠️  Not available'}")
+    
+    # Critical apps warning
+    critical_apps = ["com.android.systemui", "com.android.phone", "com.android.settings"]
+    if package in critical_apps:
+        prt("\n   ⚠️  WARNING: CRITICAL SYSTEM APP!")
+        prt("   Do not disable or uninstall!")
+    
+    prt("\n" + "-"*40)
+    prt("[1] Disable" if status == "enabled" else "[1] Enable")
+    prt("[2] Uninstall")
+    prt("[3] Clear data")
+    prt("[4] Show info")
+    prt("[0] Back")
+    prt("-"*40)
+    
+    choice = input("\nChoose action: ").strip()
+    
+    if choice == "1":
+        if status == "enabled":
+            if package in critical_apps:
+                prt("❌ Cannot disable critical system app!")
+                return
+            confirm = input(f"Disable {package}? (y/n): ").lower()
+            if confirm == 'y':
+                if disable_app(package, rooted):
+                    prt(f"✅ Disabled {package}")
+                else:
+                    prt(f"❌ Failed to disable {package}")
+        else:
+            confirm = input(f"Enable {package}? (y/n): ").lower()
+            if confirm == 'y':
+                if enable_app(package):
+                    prt(f"✅ Enabled {package}")
+                else:
+                    prt(f"❌ Failed to enable {package}")
+    
+    elif choice == "2":
+        if package in critical_apps:
+            prt("❌ Cannot uninstall critical system app!")
+            return
+        
+        if is_system and not rooted:
+            prt("❌ Cannot uninstall system apps without root!")
+            return
+        
+        confirm = input(f"Uninstall {package}? (y/n): ").lower()
+        if confirm == 'y':
+            if uninstall_app(package, rooted, is_system):
+                prt(f"✅ Uninstalled {package}")
+            else:
+                prt(f"❌ Failed to uninstall {package}")
+    
+    elif choice == "3":
+        confirm = input(f"Clear ALL data for {package}? (y/n): ").lower()
+        if confirm == 'y':
+            if clear_app_data(package):
+                prt(f"✅ Cleared data for {package}")
+            else:
+                prt(f"❌ Failed to clear data for {package}")
+    
+    elif choice == "4":
+        prt(f"\n📊 Package Info:")
+        prt(f"   Name: {package}")
+        prt(f"   Type: {'System' if is_system else 'User'}")
+        prt(f"   Status: {'Enabled' if status == 'enabled' else 'Disabled'}")
+        
+        # Get path
+        stdout, stderr, code = run_cmd(f"pm path {package}")
+        if code == 0:
+            for line in stdout.strip().split('\n'):
+                if line.startswith('package:'):
+                    prt(f"   Path: {line[8:]}")
+    
+    input("\nPress Enter to continue...")
+
+def main():
+    """Main function"""
+    show_header()
+    
+    # Check environment
+    if not os.path.exists("/data/data/com.termux/files/usr"):
+        prt("❌ This tool must be run in Termux!")
+        prt("👉 Install Termux from F-Droid")
         return
     
-    manager.system_apps, manager.user_apps = manager.categorize_apps(manager.apps)
+    prt("Checking environment...")
     
-    print(f"✅ Found {len(manager.apps)} packages")
-    print(f"   🟢 User apps: {len(manager.user_apps)}")
-    print(f"   🔴 System apps: {len(manager.system_apps)}")
-    
-    if manager.rooted:
-        print("   ⚡ Root: Available (full access)")
+    # Check root
+    rooted = is_rooted()
+    if rooted:
+        prt("⚡ Root access: Available")
     else:
-        print("   ⚠️  Root: Not available (some features limited)")
+        prt("⚠️  Root access: Not available")
     
-    page = 1
-    search_term = None
+    # Get packages
+    prt("Loading packages...")
+    packages = get_all_packages()
     
+    if not packages:
+        prt("❌ No packages found!")
+        prt("👉 First run: termux-setup-storage")
+        prt("👉 Then restart the app")
+        return
+    
+    prt(f"✅ Loaded {len(packages)} packages")
+    
+    # Main loop
     while True:
-        apps_list, page, total_pages = manager.display_apps_table(page, search_term)
-        
-        print("\n" + "="*50)
-        print("[1] Manage package    [2] Next page")
-        print("[3] Prev page         [4] Search")
-        print("[5] Refresh           [6] Backup app")
-        print("[7] Batch operations  [0] Exit")
-        print("="*50)
+        show_main_menu()
         
         try:
             choice = input("\nChoose option: ").strip()
             
             if choice == "0":
-                print("👋 Goodbye!")
+                prt("\n👋 Goodbye!")
                 break
             
             elif choice == "1":
-                try:
-                    num = int(input(f"Package number (1-{len(apps_list)}): "))
-                    if 1 <= num <= len(apps_list):
-                        app_type, package = apps_list[num-1]
-                        is_system = app_type == 'system'
-                        
-                        info = manager.get_app_info(package)
-                        
-                        print(f"\n📋 Package: {package}")
-                        print(f"   Type: {'🔴 System' if is_system else '🟢 User'}")
-                        print(f"   Version: {info['version']}")
-                        print(f"   Status: {'✅ Enabled' if info['enabled'] else '⛔ Disabled'}")
-                        print(f"   UID: {info['uid']}")
-                        
-                        if package in manager.critical_apps:
-                            print("   ⚠️  WARNING: Critical system app!")
-                        
-                        print("\n[1] Disable" if info['enabled'] else "\n[1] Enable")
-                        print("[2] Uninstall")
-                        print("[3] Clear data")
-                        print("[4] Backup APK")
-                        print("[0] Back")
-                        
-                        action = input("Action: ").strip()
-                        
-                        if action == "1":
-                            if info['enabled']:
-                                if input(f"Disable {package}? (y/n): ").lower() == 'y':
-                                    manager.disable_app(package)
-                            else:
-                                if input(f"Enable {package}? (y/n): ").lower() == 'y':
-                                    manager.enable_app(package)
-                        
-                        elif action == "2":
-                            if input(f"Uninstall {package}? (y/n): ").lower() == 'y':
-                                manager.uninstall_app(package)
-                        
-                        elif action == "3":
-                            if input(f"Clear ALL data for {package}? (y/n): ").lower() == 'y':
-                                manager.clear_app_data(package)
-                        
-                        elif action == "4":
-                            output_dir = input("Output directory [./]: ").strip() or "."
-                            manager.backup_app(package, output_dir)
-                    
-                    else:
-                        print("❌ Invalid number")
-                except ValueError:
-                    print("❌ Enter a valid number")
+                prt(f"\n📱 ALL APPS ({len(packages)} total):")
+                count = list_apps(packages, "all")
+                prt(f"\n📊 Total: {count} apps")
             
             elif choice == "2":
-                if page < total_pages:
-                    page += 1
-                else:
-                    print("📄 Already on last page")
+                prt("\n🔴 SYSTEM APPS:")
+                count = list_apps(packages, "system")
+                prt(f"\n📊 Total: {count} system apps")
             
             elif choice == "3":
-                if page > 1:
-                    page -= 1
-                else:
-                    print("📄 Already on first page")
+                prt("\n🟢 USER APPS:")
+                count = list_apps(packages, "user")
+                prt(f"\n📊 Total: {count} user apps")
             
             elif choice == "4":
-                search = input("Search term: ").strip()
+                search = input("\nSearch term: ").strip().lower()
                 if search:
-                    search_term = search
-                    page = 1
+                    prt(f"\n🔍 SEARCH RESULTS for '{search}':")
+                    results = [p for p in packages if search in p.lower()]
+                    for i, pkg in enumerate(results, 1):
+                        status = get_app_status(pkg)
+                        status_icon = "✅" if status == "enabled" else "⛔"
+                        prt(f"{i:4}. {status_icon} {pkg}")
+                    prt(f"\n📊 Found: {len(results)} apps")
                 else:
-                    search_term = None
+                    prt("❌ Please enter a search term")
             
             elif choice == "5":
-                print("🔄 Refreshing...")
-                manager.apps = manager.get_all_packages()
-                manager.system_apps, manager.user_apps = manager.categorize_apps(manager.apps)
-                page = 1
-                search_term = None
+                pkg = input("\nEnter package name: ").strip()
+                if pkg:
+                    if pkg in packages:
+                        manage_package(pkg, rooted)
+                    else:
+                        prt(f"❌ Package not found: {pkg}")
+                else:
+                    prt("❌ Please enter a package name")
             
             elif choice == "6":
-                pkg = input("Package to backup: ").strip()
-                if pkg:
-                    output_dir = input("Output directory [./]: ").strip() or "."
-                    manager.backup_app(pkg, output_dir)
+                prt("\n🔄 Refreshing package list...")
+                packages = get_all_packages()
+                prt(f"✅ Loaded {len(packages)} packages")
             
-            elif choice == "7":
-                print("\n📦 Batch Operations:")
-                print("[1] Disable all user apps (except selected)")
-                print("[2] Enable all disabled apps")
-                print("[0] Back")
-                
-                batch_choice = input("Choose: ").strip()
-                
-                if batch_choice == "1":
-                    keep = input("Packages to keep (comma separated): ").strip().split(',')
-                    keep = [p.strip() for p in keep if p.strip()]
-                    
-                    count = 0
-                    for package in manager.user_apps:
-                        if package not in keep and package not in manager.critical_apps:
-                            if manager.disable_app(package):
-                                count += 1
-                    
-                    print(f"✅ Disabled {count} apps")
-                
-                elif batch_choice == "2":
-                    count = 0
-                    for package in manager.apps:
-                        info = manager.get_app_info(package)
-                        if not info['enabled']:
-                            if manager.enable_app(package):
-                                count += 1
-                    
-                    print(f"✅ Enabled {count} apps")
+            else:
+                prt("❌ Invalid choice")
         
         except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
+            prt("\n👋 Goodbye!")
             break
         except Exception as e:
-            print(f"❌ Error: {e}")
+            prt(f"❌ Error: {e}")
 
 if _name_ == "_main_":
-    # Check if running in Termux
-    if not os.path.exists("/data/data/com.termux/files/usr"):
-        print("⚠️  This tool is designed for Termux on Android")
-        print("   Install Termux from F-Droid first")
-        sys.exit(1)
-    
-    # Check for CLI arguments
+    # Check for command line arguments
     if len(sys.argv) > 1:
-        manager = AndroidAppManager()
-        
-        if sys.argv[1] == "list":
-            manager.apps = manager.get_all_packages()
-            manager.system_apps, manager.user_apps = manager.categorize_apps(manager.apps)
-            
-            for app in manager.user_apps:
-                print(f"🟢 {app}")
-            for app in manager.system_apps:
-                print(f"🔴 {app}")
-        
+        if sys.argv[1] == "--help" or sys.argv[1] == "-h":
+            print("Android App Manager - Usage:")
+            print("  appmanager              # Interactive mode")
+            print("  appmanager list         # List all apps")
+            print("  appmanager disable <pkg> # Disable app")
+            print("  appmanager enable <pkg>  # Enable app")
+            print("  appmanager --help       # Show this help")
+        elif sys.argv[1] == "list":
+            packages = get_all_packages()
+            for pkg in packages:
+                print(pkg)
         elif sys.argv[1] == "disable" and len(sys.argv) > 2:
-            manager.disable_app(sys.argv[2])
-        
+            if disable_app(sys.argv[2], is_rooted()):
+                print(f"Disabled {sys.argv[2]}")
+            else:
+                print(f"Failed to disable {sys.argv[2]}")
         elif sys.argv[1] == "enable" and len(sys.argv) > 2:
-            manager.enable_app(sys.argv[2])
-        
-        elif sys.argv[1] == "uninstall" and len(sys.argv) > 2:
-            manager.uninstall_app(sys.argv[2])
-        
-        elif sys.argv[1] == "root-check":
-            print("✅ Rooted" if manager.rooted else "❌ Not rooted")
-        
+            if enable_app(sys.argv[2]):
+                print(f"Enabled {sys.argv[2]}")
+            else:
+                print(f"Failed to enable {sys.argv[2]}")
         else:
-            print("Usage:")
-            print("  appmanager                    # Interactive mode")
-            print("  appmanager list              # List all apps")
-            print("  appmanager disable <pkg>     # Disable app")
-            print("  appmanager enable <pkg>      # Enable app")
-            print("  appmanager uninstall <pkg>   # Uninstall app")
-            print("  appmanager root-check        # Check root status")
+            main()
     else:
-        main_menu()
+        main()
